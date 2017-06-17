@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# $Id: lsextattr_sofi 77 2016-07-12 21:06:44Z beran $
+
+# Lists files with SOFI extattr
+
+find "$@" | xargs getextattr -fh system mac_sofi 2>/dev/null |
+    awk '{ print $1 }'

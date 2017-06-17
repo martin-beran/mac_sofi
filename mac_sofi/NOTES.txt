@@ -1,0 +1,126 @@
+MAC SOFI Development Notes
+==========================
+
+$Id$
+
+sysctl security.mac.sofi
+	.enabled = enforce policy
+	.root = enforce for EUID 0 if member of .gid
+	.gid = enforce for this GID, all GIDs if negative
+
+programs
+	getpmac -l sofi
+	getpmac
+		with sofi in /etc/mac.conf
+
+/etc/mac.conf:
+default_labels file ?biba,?lomac,?mls,?sebsd,sofi
+default_labels ifnet ?biba,?lomac,?mls,?sebsd
+default_labels process ?biba,?lomac,?mls,?partition,?sebsd,sofi
+default_labels socket ?biba,?lomac,?mls
+
+kernel source /usr/src/sys/security/mac*/
+
+policy evaluation in kernel
+	<security/mac/mac_policy.h>
+		typedef mpo_*_t
+		struct mac_policy_ops
+			mpo_*_t mpo_*
+	<*.c>
+		mac_{*_check_*}() <mac_framework.h, mac_*.c>
+		mac_{*_*_*}() <mac_framework.h, mac_*.c>
+			<mac_internal.h>
+				MAC_POLICY_CHECK({*_check_*}, ...)
+				!!! MAC_POLICY_CHECK_NOSLEEP(*, ...)
+				!!! MAC_POLICY_GRANT_NOSLEEP(*, ...)
+				MAC_POLICY_BOOLEAN(*, ...)
+				!!! MAC_POLICY_BOOLEAN_NOSLEEP(*, ...)
+				MAC_POLICY_PERFORM(*, ...)
+				!!! MAC_POLICY_PERFORM_NOSLEEP(*, ...)
+					struct mac_policy_ops->mpo_{*_check_*}
+		!!! = no sleeping allowed (e.g., malloc with M_WAITOK)
+	
+entry points: struct mac_policy_ops sofi_ops
+	.mpo_* = sofi_*
+	.mpo_*_copy_label = sofi_copy_label()
+	.mpo_cred_check_relabel = sofi_cred_check_relabel()
+		sofi_check_acl()
+		sofi_i_subset()
+	.mpo_cred_create_{init,swapper} = sofi_cred_create_root()
+		sofi_init_label()
+		sofi_int_set_root(integrity)
+	.mpo_cred_relabel = sofi_cred_relabel()
+	.mpo_*_init_label = sofi_init_label()
+	    	sofi_label_alloc()
+	.mpo_proc_init_label = sofi_proc_init_label()
+	.mpo_*_destroy_label = sofi_destroy_label()
+		sofi_label_free()
+	.mpo_proc_destroy_label = sofi_proc_destroy_label()
+	.mpo_*_externalize_label = sofi_externalize_label()
+		sofi_to_string()
+			sbuf_cat(9)
+			sofi_int_to_string()
+				sbuf_printf(9)
+			sofi_acl_to_string()
+				sofi_int_to_string()
+	.mpo_*_internalize_label = sofi_internalize_label()
+		sofi_parse()
+			sofi_parse_space()
+			sofi_parse_integrity()
+				sofi_parse_ia()
+				sofi_sort_integrity()
+					qsort(9)
+						sofi_cmp_integrity()
+					sofi_unique_integrity()
+			sofi_parse_acl()
+				sofi_parse_integrity()
+		sofi_modify_label()
+	.mpo_thread_userret = sofi_thread_userret()
+	.mpo_vnode_associate_extattr = sofi_vnode_associate_extattr()
+		sofi_valid()
+	.mpo_vnode_check_relabel = sofi_vnode_check_relabel()
+		sofi_check_acl()
+		sofi_modify_label()
+		sofi_set_label_copy()
+	.mpo_vnode_create_extattr = sofi_vnode_create_extattr()
+	.mpo_vnode_relabel = sofi_vnode_relabel()
+	.mpo_vnode_setlabel_extattr = sofi_vnode_setlabel_extattr()
+
+allocation and deallocation of labels:
+	sofi_label_alloc() -> mac_sofi_label*
+	sofi_label_free(mac_sofi_label*)
+	sofi_destroy_label(label*)
+	sofi_create_label_copy(mac_sofi_label*) -> mac_sofi_label*
+	sofi_set_label_copy(mac_sofi_label* src, label* dst)
+	sofi_copy_label(label* src, label* dst)
+	sofi_move_label(label* src, label* dst)
+	
+manipulation with labels:
+	sofi_int_clear()
+		sets MAC_SOFI_IA_NULL
+	sofi_int_copy(src, dst)
+		dst = src
+	sofi_int_set_root()
+		sets MAC_SOFI_IA_ROOT
+	sofi_int_meet(src, dst)
+		dst &= src
+	sofi_int_join(src, dst)
+		dst |= src
+	sofi_modify_label()
+		return = old + mod
+		sofi_acl_copy(src, dst, i)
+
+SOFI algorithm operations:
+	sofi_check_acl(subj, obj, acl)
+		checks that operation by subj on obj is permitted by obj's ACL
+		with index acl
+	sofi_enforce()
+		checks whether SOFI enforcement is enabled
+	sofi_i_subset(Ia, Ib)
+		Ia <= Ib
+	sofi_i_subset2(Ia, Ib1, Ib2)
+		Ia <= (Ib1 | Ib2)
+	sofi_do_op(subj, obj, mode, new_obj)
+		checks ACL and updates labels
+	sofi_update_int(new_int, reader_int, writer_int)
+		computes new reader's integrity

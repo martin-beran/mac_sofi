@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# $Id: rmextattr_sofi 77 2016-07-12 21:06:44Z beran $
+
+# Removes SOFI extattrs from files
+
+find "$@" | xargs rmextattr -fhq system mac_sofi
